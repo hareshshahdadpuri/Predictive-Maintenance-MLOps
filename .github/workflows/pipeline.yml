@@ -1,0 +1,95 @@
+name: Predictive Maintenance CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  HF_USERNAME: shahdadpuri
+  HF_SPACE_REPO: shahdadpuri/predictive-maintenance-app
+
+jobs:
+  register-dataset:
+    name: Register Dataset
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Verify dataset on Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python data_pipeline/register.py
+
+  data-preparation:
+    name: Data Preparation
+    needs: register-dataset
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Clean, split, and re-upload data
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python data_pipeline/prep.py
+      - name: Upload train/test splits as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-splits
+          path: |
+            train.csv
+            test.csv
+
+  model-training:
+    name: Model Training
+    needs: data-preparation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Download train/test splits
+        uses: actions/download-artifact@v4
+        with:
+          name: data-splits
+      - name: Train, tune, and register best model
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python data_pipeline/train.py
+      - name: Upload trained model artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trained-model
+          path: |
+            model.joblib
+            model_info.json
+            model_comparison.csv
+            experiment_log.csv
+
+  deploy:
+    name: Deploy to Hugging Face Space
+    needs: model-training
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Push app files to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python data_pipeline/deploy.py
